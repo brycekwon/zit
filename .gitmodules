@@ -1,3 +1,0 @@
-[submodule "shunit2"]
-	path = tests/shunit2
-	url = https://github.com/zandev/shunit2.git
