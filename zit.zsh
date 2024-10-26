@@ -3,9 +3,7 @@
 ################################################################################
 
 # define path where zit modules will be stored
-if [[ -z "${ZIT_HOME}" ]]; then
-    export ZIT_HOME="${ZDOTDIR:-${HOME}}"
-fi
+export ZIT_HOME="${ZIT_HOME:-${ZDOTDIR:-$HOME/zit}}"
 
 
 ################################################################################
@@ -21,6 +19,23 @@ function __zit-parameter-validation() {
     return 0
 }
 
+# clone git repository (at specific reference)
+function __zit-repository-clone() {
+    if [[ -n "${2}" ]]; then
+        git clone --recurse-submodules --depth 1 \
+            "${1}" --branch "${2}" "${3}" || {
+                printf "[zit] failed to clone repository: %s\n" "${3}"
+                return 1
+            }
+    else
+        git clone --recurse-submodules --depth 1 \
+            "${1}" "${3}" || {
+                printf "[zit] failed to clone repository: %s\n" "${3}"
+                return 1
+            }
+    fi
+}
+
 
 ################################################################################
 # Define Primary Functions                                                     #
@@ -28,29 +43,20 @@ function __zit-parameter-validation() {
 
 # install plugin from url in format 'http(s)://<URL>#<BRANCH>'
 function zit-install() {
-    # verify function parameters
     __zit-parameter-validation "plugin name" "${1}" || return 1
     __zit-parameter-validation "repository url" "${2}" || return 1
 
-    # parse git url and branch
     local git_repo="${2%%#*}"
-    local git_branch="${2#*#}" && [[ $git_branch != $2 ]] || git_branch=""
+    local git_ref="${2#*#}" && [[ $git_ref != $2 ]] || git_ref=""
     if [[ -z "${git_repo}" ]]; then
-        printf "[zit] invalid url: 'http(s)://<URL>#<BRANCH>'\n" 
+        printf "[zit] invalid url: 'http(s)://<URL>#<REF>'\n" 
         return 1
     fi
 
-    # clone git repository and specified branch (if applicable)
     local module_dir="${ZIT_HOME}/${1}"
     if [[ ! -d "${module_dir}" ]]; then
-        printf "[zit] installing: %s\n" "${module_dir}"
-        if [[ -z "${git_branch}" ]]; then
-            git clone --recurse-submodules --depth 1 \
-                "${git_repo}" "${module_dir}" > /dev/null
-        else
-            git clone --recurse-submodules --depth 1 \
-                "${git_repo}" -b "${git_branch}" "${module_dir}" > /dev/null
-        fi
+        printf "[zit] installing: %s\n" "${1}"
+        __zit-repository-clone "${git_repo}" "${git_ref}" "${module_dir}" || return 1
     fi
 }
 
@@ -59,18 +65,25 @@ function zit-load() {
     __zit-parameter-validation "plugin name" "${1}" || return 1
     __zit-parameter-validation "source file" "${2}" || return 1
 
-    # source the main function for the plugin
-    source "${ZIT_HOME}/${1}/${2}" || return 1
+    source_file="${ZIT_HOME}/${1}/${2}"
+    if [[ ! -f "${source_file}" ]]; then
+        printf "[zit] error: source file does not exist: %s\n" "${source_file}"
+        return 1
+    fi
+
+    source "${source_file}"
 }
 
 # update plugin from remote url
 function zit-upgrade() {
-    # pull new changes into each module repository
     for i in $(command ls $ZIT_HOME); do
         pushd "$ZIT_HOME/${i}" > /dev/null || continue
-
         printf "[zit] updating: %s\n" "${i}"
-        git pull > /dev/null
+
+        git pull || {
+            printf "[zit] failed to pull repository: %s\n" ${i}
+            continue
+        }
 
         popd > /dev/null || continue
     done
